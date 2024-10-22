@@ -66,7 +66,7 @@ def check_tokens():
 def get_api_answer(timestamp):
     """Запрос к единственному эндпоинту API-сервиса."""
     payload = {'from_date': timestamp}
-    logger.info(f"""Попытка отправки GET-запроса по {ENDPOINT}, 
+    logger.info(f"""Попытка отправки GET-запроса по {ENDPOINT},
 с параметрами: {payload}""")
     try:
         response = requests.get(
@@ -81,7 +81,7 @@ def get_api_answer(timestamp):
     if response.status_code != 200:
         logger.error(f'Ошибка API. Код ответа: {response.status_code}.')
         raise ApiError(f'Ошибка API. Код ответа: {response.status_code}.')
-    logger.info(f"""Получили ответ после GET-запроса по {ENDPOINT}, 
+    logger.info(f"""Получили ответ после GET-запроса по {ENDPOINT},
 с параметрами: {payload}""")
     return response.json()
 
@@ -114,9 +114,9 @@ def parse_status(homework):
     homework_name = homework.get('homework_name')
     status = homework.get('status')
     if status not in HOMEWORK_VERDICTS:
-        logger.error(f"""Неожиданный статус домашней работы "{status}", 
+        logger.error(f"""Неожиданный статус домашней работы "{status}",
 обнаруженный в ответе API""")
-        raise ValueError(f"""Неожиданный статус домашней работы "{status}", 
+        raise ValueError(f"""Неожиданный статус домашней работы "{status}",
 обнаруженный в ответе API.""")
     verdict = HOMEWORK_VERDICTS.get(status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
@@ -139,8 +139,8 @@ def send_message(bot, message):
         # Опять же тесты не хотят с logger
         logging.debug(f'Сообщение отправлено: "{message}"')
     except Exception as error:
-        logger.error(f"""Не удалось отправить сообщение в чат с ID {TELEGRAM_CHAT_ID}: 
-{error}""")
+        logger.error(f"""Не удалось отправить сообщение в чат с ID
+{TELEGRAM_CHAT_ID}: {error}""")
 
 
 def main():
@@ -176,7 +176,7 @@ def main():
                         send_message(bot, status_of_homework)
                         logger.debug(f'Новый статус - "{status_of_homework}"')
                     else:
-                        logger.debug(f"""Отсутствие в ответе новых статусов. 
+                        logger.debug(f"""Отсутствие в ответе новых статусов.
                                      Текущий - "{status_of_homework}".""")
                 except KeyError as error:
                     logger.error(f'Ошибка: {error}')
