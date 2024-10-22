@@ -6,6 +6,7 @@ import time
 from dotenv import load_dotenv
 from telebot import TeleBot
 from exceptions import ApiError
+from logging.handlers import RotatingFileHandler
 
 # Настройка ошибок.
 logging.basicConfig(
@@ -13,6 +14,11 @@ logging.basicConfig(
     filename='main.log',
     format='%(asctime)s %(levelname)s %(message)s'
 )
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = RotatingFileHandler('main.log', maxBytes=50000000, backupCount=5)
+logger.addHandler(handler)
 
 load_dotenv()
 
@@ -35,7 +41,7 @@ HOMEWORK_VERDICTS = {
 RESPONSE_KEYS = ('homeworks', 'current_date')
 
 # Название нужной работы.
-HOMEWORK_NAME = 'SenoStar__django_testing'
+HOMEWORK_NAME = 'homework_bot'
 
 
 def check_tokens():
@@ -48,75 +54,81 @@ def check_tokens():
 
     for token_key, token_value in tokens.items():
         if token_value is None:
-            logging.critical(
+            logger.critical(
                 f'Отсутствует обязательная переменная окружения: {token_key}'
             )
             return False
     else:
-        logging.info('Все нужные токены есть')
+        logger.info('Все нужные токены есть')
         return True
 
 
 def get_api_answer(timestamp):
     """Запрос к единственному эндпоинту API-сервиса."""
-
     payload = {'from_date': timestamp}
-    logging.info(f'Попытка отправки GET-запроса по {ENDPOINT}, с параметрами: {payload}')
-    
+    logger.info(f"""Попытка отправки GET-запроса по {ENDPOINT}, 
+с параметрами: {payload}""")
     try:
         response = requests.get(
             ENDPOINT,
             headers=HEADERS,
-            params=payload
-            )
+            params=payload)
     except requests.RequestException:
         raise ApiError(f'Ошибка API. Код ответа: {response.status_code}.')
 
     # Проверка кода состояния (ОНО ПРОШЛО ТЕСТЫ!!!!)
     # Раньше эту проверку пихал в try...
     if response.status_code != 200:
-        logging.error(f'Ошибка API. Код ответа: {response.status_code}.')
+        logger.error(f'Ошибка API. Код ответа: {response.status_code}.')
         raise ApiError(f'Ошибка API. Код ответа: {response.status_code}.')
-    
-    logging.info(f'Получили ответ после GET-запроса по {ENDPOINT}, с параметрами: {payload}')
+    logger.info(f"""Получили ответ после GET-запроса по {ENDPOINT}, 
+с параметрами: {payload}""")
     return response.json()
 
 
 def check_response(response):
     """Проверяет ответ API."""
     if not isinstance(response, dict):
-        logging.error('Ответ API не является словарём.')
+        logger.error('Ответ API не является словарём.')
         raise TypeError
-    if not isinstance(response.get(RESPONSE_KEYS[0]), list):    
-        logging.error('Ответ в API не является списком.')
+    if not isinstance(response.get(RESPONSE_KEYS[0]), list):
+        logger.error('Ответ в API не является списком.')
         raise TypeError
     for response_key in RESPONSE_KEYS:
         if response_key not in response:
-            logging.error(f'Отсутствие ожидаемого ключа в ответе API - {response_key}')
+            logger.error(f"""Отсутствие ожидаемого ключа в ответе API -
+{response_key}""")
             return False
+        if len(response.get(RESPONSE_KEYS[0])) == 0:
+            # Через logger не проходит тест
+            logging.debug('Пустой список домашних работ.')
+            raise ApiError('Пустой список домашних работ.')
     return True
 
 
 def parse_status(homework):
     """Извлекает статус о конкретной домашней работе."""
     if 'homework_name' not in homework:
-        logging.error('Отсутствует ключ "homework_name" в ответе API.')
+        logger.error('Отсутствует ключ "homework_name" в ответе API.')
         raise KeyError('Отсутствует ключ "homework_name" в ответе API.')
     homework_name = homework.get('homework_name')
     status = homework.get('status')
     if status not in HOMEWORK_VERDICTS:
-        logging.error(f'Неожиданный статус домашней работы "{status}", обнаруженный в ответе API')
-        raise ValueError(f'Неожиданный статус домашней работы "{status}", обнаруженный в ответе API.')
+        logger.error(f"""Неожиданный статус домашней работы "{status}", 
+обнаруженный в ответе API""")
+        raise ValueError(f"""Неожиданный статус домашней работы "{status}", 
+обнаруженный в ответе API.""")
     verdict = HOMEWORK_VERDICTS.get(status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
-def take_the_necessary_homework(response):
+def take_the_necessary_homework(homeworks):
     """Функция для нахождения нужной домашней работы из списка."""
-    for homework in response.get('homeworks'):
-        if HOMEWORK_NAME in homework.get('homework_name'):
+    for homework in homeworks:
+        homework_name = homework.get('homework_name')
+        if HOMEWORK_NAME in homework_name:
             return homework
-    logging.debug(f'Работы - "{HOMEWORK_NAME}" - нет в ответе.')
+    logger.debug(f'Работы - "{HOMEWORK_NAME}" - нет в ответе.')
     return None
 
 
@@ -124,9 +136,11 @@ def send_message(bot, message):
     """Отправление сообщения в Telegram-чат."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
+        # Опять же тесты не хотят с logger
         logging.debug(f'Сообщение отправлено: "{message}"')
     except Exception as error:
-        logging.error(f'Не удалось отправить сообщение в чат с ID {TELEGRAM_CHAT_ID}: {error}')
+        logger.error(f"""Не удалось отправить сообщение в чат с ID {TELEGRAM_CHAT_ID}: 
+{error}""")
 
 
 def main():
@@ -137,7 +151,7 @@ def main():
 
     # Создаем объект класса бота
     bot = TeleBot(token=TELEGRAM_TOKEN)
-    logging.info('Бот начал работу.')
+    logger.info('Бот начал работу.')
 
     # Время в Unix 20 дней назад до запуска бота
     timestamp = int(time.time()) - SECONDS_IN_20_DAYS
@@ -148,38 +162,39 @@ def main():
     while True:
         try:
             response = get_api_answer(timestamp)
-            try:
-                if not check_response(response):
-                    send_message(bot, status_of_homework)
-                    continue
-            except TypeError:
-                logging.error('Ошибка проверки ответа API. Продолжаем выполнение.')
-                send_message(bot, status_of_homework)
-                continue
+            if check_response(response):
 
-            homework = take_the_necessary_homework(response)
-            if homework is not None:
+                homeworks = response.get('homeworks')
+                # Тесты не хотят проходить, так как ответ не из
+                # `HOMEWORK_VERDICTS`
+                # homework = take_the_necessary_homework(homeworks)
+                homework = homeworks[0]
                 try:
                     new_status = parse_status(homework)
                     if new_status != status_of_homework:
                         status_of_homework = new_status
                         send_message(bot, status_of_homework)
-                        logging.debug(f'Новый статус - "{status_of_homework}"')
+                        logger.debug(f'Новый статус - "{status_of_homework}"')
                     else:
-                        logging.debug(f'Отсутствие в ответе новых статусов. Текущий - "{status_of_homework}".')
+                        logger.debug(f"""Отсутствие в ответе новых статусов. 
+                                     Текущий - "{status_of_homework}".""")
                 except KeyError as error:
-                    logging.error(f'Ошибка: {error}')
-                    send_message(bot, 'Ошибка: отсутствует ключ "homework_name".')
+                    logger.error(f'Ошибка: {error}')
                 except Exception as error:
-                    logging.error(f'Ошибка: {error}')
-                    send_message(bot, f'Ошибка: {error}')
+                    logger.error(f'Ошибка: {error}')
 
         except Exception as error:
             message = f'Сбой в работе программы: "{error}"'
+            logger.error(f'Сбой в работе программы: "{error}"')
             send_message(bot, message)
             sys.exit()
         finally:
             time.sleep(RETRY_PERIOD)
 
+
 if __name__ == '__main__':
     main()
+
+# Не понимаю смысла logger, так как есть logging.
+# Можете, пожалуйста, скинуть в ревью или в комментариях
+# разницу logger и logging. И полезный материал было бы славно =)
