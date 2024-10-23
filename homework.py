@@ -3,21 +3,19 @@ import sys
 import requests
 import logging
 import time
+from http import HTTPStatus
 from dotenv import load_dotenv
 from telebot import TeleBot
-from exceptions import ApiError
+from exceptions import ApiError, EmptyResponseError
 from logging.handlers import RotatingFileHandler
-
-# Настройка ошибок.
-logging.basicConfig(
-    level=logging.DEBUG,
-    filename='main.log',
-    format='%(asctime)s %(levelname)s %(message)s'
-)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-handler = RotatingFileHandler('main.log', maxBytes=50000000, backupCount=5)
+handler = RotatingFileHandler(
+    'main.log',
+    maxBytes=50000000,
+    backupCount=5
+)
 logger.addHandler(handler)
 
 load_dotenv()
@@ -52,15 +50,20 @@ def check_tokens():
         'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
     }
 
+    all_tokens_available = True
+
     for token_key, token_value in tokens.items():
         if token_value is None:
             logger.critical(
                 f'Отсутствует обязательная переменная окружения: {token_key}'
             )
-            return False
-    else:
+            all_tokens_available = False
+
+    if all_tokens_available:
         logger.info('Все нужные токены есть')
         return True
+    else:
+        return False
 
 
 def get_api_answer(timestamp):
@@ -73,12 +76,10 @@ def get_api_answer(timestamp):
             ENDPOINT,
             headers=HEADERS,
             params=payload)
-    except requests.RequestException:
-        raise ApiError(f'Ошибка API. Код ответа: {response.status_code}.')
+    except requests.RequestException as error:
+        raise ApiError(f'Ошибка API. Код ответа: {error}.')
 
-    # Проверка кода состояния (ОНО ПРОШЛО ТЕСТЫ!!!!)
-    # Раньше эту проверку пихал в try...
-    if response.status_code != 200:
+    if response.status_code != HTTPStatus.OK:
         logger.error(f'Ошибка API. Код ответа: {response.status_code}.')
         raise ApiError(f'Ошибка API. Код ответа: {response.status_code}.')
     logger.info(f"""Получили ответ после GET-запроса по {ENDPOINT},
@@ -102,7 +103,7 @@ def check_response(response):
         if len(response.get(RESPONSE_KEYS[0])) == 0:
             # Через logger не проходит тест
             logging.debug('Пустой список домашних работ.')
-            raise ApiError('Пустой список домашних работ.')
+            raise EmptyResponseError('Пустой список домашних работ.')
     return True
 
 
@@ -120,16 +121,6 @@ def parse_status(homework):
 обнаруженный в ответе API.""")
     verdict = HOMEWORK_VERDICTS.get(status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-
-
-def take_the_necessary_homework(homeworks):
-    """Функция для нахождения нужной домашней работы из списка."""
-    for homework in homeworks:
-        homework_name = homework.get('homework_name')
-        if HOMEWORK_NAME in homework_name:
-            return homework
-    logger.debug(f'Работы - "{HOMEWORK_NAME}" - нет в ответе.')
-    return None
 
 
 def send_message(bot, message):
@@ -165,9 +156,6 @@ def main():
             if check_response(response):
 
                 homeworks = response.get('homeworks')
-                # Тесты не хотят проходить, так как ответ не из
-                # `HOMEWORK_VERDICTS`
-                # homework = take_the_necessary_homework(homeworks)
                 homework = homeworks[0]
                 try:
                     new_status = parse_status(homework)
@@ -177,7 +165,7 @@ def main():
                         logger.debug(f'Новый статус - "{status_of_homework}"')
                     else:
                         logger.debug(f"""Отсутствие в ответе новых статусов.
-                                     Текущий - "{status_of_homework}".""")
+                                    Текущий - "{status_of_homework}".""")
                 except KeyError as error:
                     logger.error(f'Ошибка: {error}')
                 except Exception as error:
@@ -193,8 +181,10 @@ def main():
 
 
 if __name__ == '__main__':
+    # Настройка ошибок.
+    logging.basicConfig(
+        level=logging.DEBUG,
+        filename='main.log',
+        format='%(asctime)s %(levelname)s %(message)s'
+    )
     main()
-
-# Не понимаю смысла logger, так как есть logging.
-# Можете, пожалуйста, скинуть в ревью или в комментариях
-# разницу logger и logging. И полезный материал было бы славно =)
